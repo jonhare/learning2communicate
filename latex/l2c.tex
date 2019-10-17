@@ -1,0 +1,554 @@
+\ifdefined\beamerclass
+\else
+    \def\beamerclass{beamer}
+\fi
+\documentclass[\beamerclass,aspectratio=1610]{beamer}
+
+\usepackage{pgfpages}
+
+\usepackage{biblatex}
+\addbibresource{refs.bib}
+
+\usepackage{lmodern}
+\usepackage{listings}
+\usepackage{amsmath}
+\usepackage{bm}
+\usepackage{textpos} % package for the positioning
+
+\usepackage{pgf, tikz}
+\usepackage{mathdots}
+\usepackage{yhmath}
+\usepackage{cancel}
+\usepackage{color}
+\usepackage{siunitx}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{amssymb}
+\usepackage{gensymb}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usetikzlibrary{fadings}
+\usetikzlibrary{arrows, automata}
+
+\setbeamerfont{footnote}{size=\tiny}
+
+\usetheme{Copenhagen}
+\hypersetup{pdfstartview={Fit}}
+\lstset{basicstyle=\small\ttfamily,breaklines=true}
+
+\title[Learning to Communicate]{Learning to Communicate: Challenges in optimising deep stochastic networks with categorical sampling}
+\author{Jonathon Hare}
+\institute[]
+{
+  Vision, Learning and Control\\
+  University of Southampton 
+}
+\date{}
+\subject{Computer Science}
+\useoutertheme{infolines}
+\setbeamertemplate{headline}{} %remove headline
+\setbeamertemplate{navigation symbols}{} %remove navigation symbols
+
+\begin{document}
+  \frame{
+    \titlepage
+    \center
+    \tiny{The idea for this presentation comes from recent work with my PhD student Daniela Mihai in our upcoming NeurIPS workshop paper: \fullcite{Mihai19}. Some  of the things I'll mention in passing relate to papers with another student, Yan Zhang, and Adam Pr\"ugel-Bennett.}
+  }
+
+\begin{frame}
+\frametitle{Contents}
+\begin{itemize}
+	\item Deep Learning 101
+	\item Learning to Play Communication Games
+	\item What tools do we need to learn such a model?
+	\item What do these models learn?
+	\item Future Challenges
+\end{itemize}
+\end{frame}
+
+\begin{frame}{pause}
+\frametitle{Machine Learning - A Recap}
+{\tiny All credit for this slide goes to Niranjan}\\
+\vspace{5mm}
+\begin{tabular}{ll}
+Data & $\{\bm{x}_n, \bm{y}_n\}^N_{n=1} \qquad \{\bm{x}_n\}^N_{n=1}$ 
+\vspace{3mm} \\ 
+Function Approximator & $\bm{y} = f (\bm{x}, \bm{\theta}) + \nu$ 
+\vspace{3mm} \\ 
+Parameter Estimation & $E_0 = \sum^N_{n=1} \{\|\bm{y}_n - f (\bm{x}_n; \bm{\theta})\|\}^2$
+\vspace{3mm} \\ 
+Prediction & $\bm{\hat y}_{N+1} = f(\bm{x}_{N+1}, \bm{\hat \theta})$
+\vspace{3mm} \\ 
+Regularisation & $E_1 = \sum^N_{n=1} \{\|\bm{y}_n - f (\bm{x}_n; \bm{\theta})\|\}^2 + r(\|\bm\theta\|)$
+\vspace{3mm} \\ 
+Modelling Uncertainty & $p(\bm\theta|\{\bm x_n, \bm y_n\}_{n=1}^N)$
+\vspace{3mm} \\ 
+Probabilistic Inference & $\mathop{\mathbb{E}}[g(\bm\theta)] = \int g(\bm\theta)p(\bm\theta)d\bm\theta = \frac{1}{N_s}\sum_{n=1}^{N_s}g(\bm\theta^{(n)})$
+\vspace{3mm} \\ 
+Sequence Modelling & $\bm x_n = f(\bm x_{n-1}, \bm\theta)$
+\end{tabular}
+\vspace{5mm}
+\end{frame}
+
+\begin{frame}
+\frametitle{What is Deep Learning?}
+
+Deep learning is primarily characterised by large datasets and function compositions with many parameters: \\ \vspace{10mm}
+\begin{itemize}
+	\item<2-> Feedforward networks: $\bm{y} = f (g(\bm{x}, \bm\theta_g), \bm{\theta_f})$
+	\begin{itemize}
+		\item Often with relatively simple functions - e.g.:\\
+		$f(\bm x, \bm{\theta}_f) = \sigma(\bm{x}^\top \bm{\theta}_f)$ or $f(\bm x, \bm{\theta}_f) = \sigma(\bm{x} \star \bm{\theta}_f)$
+	\end{itemize} \vspace{3mm}
+	\item<3-> Recurrent networks: $\bm y_t = f(\bm y_{t-1}, \bm x_t, \bm\theta) = f(f(\bm y_{t-2}, \bm x_{t-1}, \bm\theta), \bm\theta) = \dots$
+\end{itemize}
+\vspace{10mm}
+
+\uncover<4->{
+In the early days the focus of deep learning was on learning functions for classification. Nowadays the functions are much more general in their inputs and outputs.
+}
+\end{frame}
+
+\begin{frame}
+\frametitle{A deep learning example: object detection}
+\centering
+\includegraphics[scale=0.55]{coco2.png}
+\end{frame}
+
+\begin{frame}
+\frametitle{Differentiable Programming}
+
+\begin{itemize}
+	\item Differentiable programming is a term coined by Yann Lecun\footnote{https://www.facebook.com/yann.lecun/posts/10155003011462143} to describe a superset of Deep Learning.
+	\item Captures the idea that computer programs can be constructed of parameterised functional blocks in which the parameters are learned using some form of \textbf{gradient-based optimisation.}
+	\begin{itemize}
+		\item The implication is that we need to be able to compute gradients with respect to the parameters of these functional blocks. 
+		\pause
+		\item The idea of Differentiable Programming also opens up interesting possibilities: 
+		\begin{itemize}
+			\item The functional blocks don't need to be direct functions in a mathematical sense; more generally they can be \emph{algorithms}.
+			\item What if the functional block we're learning parameters for is itself an algorithm that optimises the parameters of an internal algorithm using a gradient based optimiser?!\footfullcite{zhang2018learning}\textsuperscript{,}\footfullcite{zhang2019dspn}
+		\end{itemize}
+	\end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{Learning to Play Communication Games: Motivation}
+
+\begin{itemize}
+	\item As humans, our understanding and conceptualisation of the visual world is very much linked with our ability to communicate using natural language.
+	\item Machine learners (and mathematicians) have long understood that forcing data through a bottleneck can lead to representations that capture information.
+	\item \textbf{We want to explore if a `language bottleneck' between a pair of agents performing collaborative tasks can encourage the emergence of a communication protocol that captures visual semantics.}
+	\begin{itemize}	
+		\item We'll assume a `language bottleneck' means a variable length sequence of discrete tokens drawn from a fixed size vocabulary.
+	\end{itemize}
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{A Referential Communication Game}
+
+\begin{figure}
+\centering
+\includegraphics[width=0.7\textwidth]{game.png}	
+\end{figure}
+
+A Referential Game\footfullcite{Lewis1969-LEWCAP-4}: Alice must communicate to Bob which image she has (Bob has that image, plus many distractors). Communication is one-way only. Alice knows nothing about the distractors Bob has (they could all be white boats!).
+\end{frame}
+
+\begin{frame}
+\frametitle{A Computational Model}
+This is the model proposed by \citeauthor{Havrylov2017}\footfullcite{Havrylov2017}:
+\begin{figure}
+    \centering
+    \resizebox{0.7\textwidth}{!}{\input{model-orig.tikz}\unskip}
+\end{figure}
+\begin{equation*}
+	\mathcal{L}_{game;\phi,\theta}(t) = \mathbb{E}_{m_t \sim p_{\phi}(\cdot | t)}\Bigg[ \sum_{k=1}^K \max[0, 1-f(t)^\top g(h_l^r) + f(d_k)^\top g(h_l^r)] \Bigg]
+\end{equation*}
+
+
+\end{frame}
+
+\begin{frame}
+\frametitle{How can we optimise the parameters of this model? (I)}
+There are a few challenges:
+
+\begin{itemize}
+	\item We have a non-differentiable sampling operation in the middle of the model (sampling tokens from a Categorical distribution). \pause
+	\item This model is complex:
+	\begin{itemize}
+		\item we could in principle hand-derive an analytical expression for the derivative of the loss with respect to each parameter, but...
+		\item the model is deep --- you would need to apply the chain rule a huge number of times, 
+		\item the depth is actually variable because the messages are variable length,
+		\item you'll be dealing with derivatives of sigmoid's, tanh's and ReLUs, and,
+		\item there are \textbf{6,171,493} learnable parameters\footnote{Admittedly many of these are wrapped up in vectors/matrices/tensors so the actual number of analytical expressions would be significantly less}!!!
+	\end{itemize}
+\end{itemize}	
+\end{frame}
+\begin{frame}
+\frametitle{How can we optimise the parameters of this model? (II)}
+There are a few challenges:
+
+\begin{itemize}
+	\item Even with expressions for the first-order derivatives, the optimisation problem is \textit{hard} - in particular, the loss landscape is obviously high dimensional, but it also has:
+	\begin{itemize}
+		\item many local minima, and
+		\item a considerable amount of symmetry.
+	\end{itemize}\pause
+	\item There is significant computational complexity; there is no hope of performing full gradient descent:
+	\begin{itemize}
+		\item With just 128 images (1 target \& 127 distractors) of size 228x228, the memory requirements for storing the intermediate results (required for computing the gradients) exceeds 38GB.
+		\item The forward-pass takes of the order of $10^{10}$ multiply-accumulate CPU operations.
+	\end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\frametitle{Differentiable Sampling: Straight-Through Gumbel Softmax}
+
+\begin{columns}[T]
+ 	\column{.10\textwidth}
+
+\tikzset{every picture/.style={line width=0.75pt}} %set default line width to 0.75pt        
+
+\begin{tikzpicture}[x=0.75pt,y=0.75pt,yscale=-1,xscale=1]
+%uncomment if require: \path (0,300); %set diagram left start at 0, and has height of 300
+
+%Shape: Rectangle [id:dp996418010681726] 
+\draw  [fill={rgb, 255:red, 245; green, 166; blue, 35 }  ,fill opacity=1 ] (255,195) -- (265,195) -- (265,205) -- (255,205) -- cycle ;
+%Straight Lines [id:da1931652613109811] 
+\draw    (260,195) -- (260,172) ;
+\draw [shift={(260,170)}, rotate = 450] [fill={rgb, 255:red, 0; green, 0; blue, 0 }  ][line width=0.75]  [draw opacity=0] (8.93,-4.29) -- (0,0) -- (8.93,4.29) -- cycle    ;
+
+%Straight Lines [id:da14376405679335102] 
+\draw    (260,250.2) -- (260,210) ;
+\draw [shift={(260,210)}, rotate = 450] [color={rgb, 255:red, 0; green, 0; blue, 0 }  ][line width=0.75]    (0,5.59) -- (0,-5.59)   ;
+
+
+% Text Node
+\draw (244,197) node  [align=left] {$\displaystyle w_{1}$};
+% Text Node
+\draw (241.5,219) node [scale=0.7] [align=left] {ST-GS};
+\end{tikzpicture}
+
+\column{.90\textwidth}
+The generation of a discrete token, $t$, from a vocabulary of $K$ tokens is achieved by sampling a categorical distribution 
+\begin{equation*}
+t \sim \operatorname{Cat}(p_1, \dots, p_K)\,; \,\sum_i p_i=1.
+\end{equation*} \pause
+Generating the probabilities $p_1, \dots, p_K$ directly from a neural network has potential numerical problems; it's much easier to generate un-normalised log-probabilities (logits), $x_1, \dots, x_K$. \pause
+\\[0.5em]
+The gumbel-softmax trick allows us to sample directly using the logits: 
+\begin{equation*}
+t = \underset{ i \in \{1,\cdots,K\} }{\operatorname{argmax}} x_i + z_i
+\end{equation*}
+where $z_1, \dots z_K$ are i.i.d Gumbel(0,1) variates  which can be computed from Uniform variates through $-\log(-\log(-\mathcal{U}(0,1)))$.
+\end{columns}
+
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Differentiable Sampling: Straight-Through Gumbel Softmax}
+Ok, but how does that help? $\operatorname{argmax}$ isn't differentiable! \pause
+\\[0.5em]
+...$\operatorname{softargmax}$ is:
+\begin{equation*}
+	\operatorname{softargmax}(\bm{y}) = \sum_i \frac{e^{\beta y_i}}{\sum_j e^{\beta y_j}} i
+\end{equation*}
+
+where $\beta$ is the inverse-temperature parameter. Higher values of $\beta$ give a more peaky distribution\footnote{in practice we'll either use an annealing schedule for the temperature, or just estimate a good value for a given $\bm{y}$ using an additional small network built into the model!}.
+\end{frame}
+
+\begin{frame}
+\frametitle{Differentiable Sampling: Straight-Through Gumbel Softmax}
+But... this clearly gives us a result that will be non-integer; we cannot round or clip because it would be non-differentiable. \pause
+\\[0.5em]
+The Straight-Through operator allows us to take the result of a true $\operatorname{argmax}$ that has the gradient of the $\operatorname{softargmax}$:
+\begin{equation*}
+	\operatorname{STargmax}(\bm{y}) = \operatorname{softargmax}(\bm{y}) + \operatorname{stopgradient}(\operatorname{argmax}(\bm{y}) - \operatorname{softargmax}(\bm{y})) 
+\end{equation*}
+where $\operatorname{stopgradient}$ is defined such that $\operatorname{stopgradient}(\bm{a}) = \bm{a}$ and $\nabla \operatorname{stopgradient}(\bm{a}) = 0$.
+\pause
+\begin{block}{Straight-Through Gumbel Softmax}
+Combine the gumbel softmax trick with the $\operatorname{STargmax}$ to give you discrete samples, with a useable gradient\footnote{The ST operator is biased but low variance; in practice it works very well and is better than the high-variance unbiased estimates you could get through REINFORCE.}.
+\end{block}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{How are we going to compute all the gradients needed for out optimiser?}
+To solve optimisation problems using gradient methods we need to compute the gradients (derivatives) of the objective with respect to the parameters.
+\\[0.5em]
+In our model we're talking about the gradients of the hinge loss function, $\mathcal{L}$ with respect to the 6.2M parameters $\bm{\theta}$: $\nabla_{\bm{\theta}} \mathcal{L} = \frac{\partial \mathcal{L}}{\partial \bm{\theta}}$
+
+\end{frame}
+
+\begin{frame}
+	\frametitle{Computing Derivatives}
+There are three ways to compute derivatives:
+
+\begin{columns}
+	\column{.45\textwidth}
+    \setbeamercovered{transparent}
+    \begin{itemize}
+    	\item<1,2> Symbolically differentiate the function with respect to its parameters
+    	\begin{itemize}
+    		\item by hand
+    		\item using a CAS
+    	\end{itemize}
+    	\item<1,3> Make estimates using finite differences
+    	\item<1,4> Use Automatic Differentiation
+    \end{itemize}
+
+    \column{.45\textwidth}
+      \begin{block}{Problems}<2>
+        Static - can't ``differentiate algorithms''; unwieldy with millions of variables
+      \end{block}
+      \begin{block}{Problems}<3>
+        Numerical errors - will compound in deep nets
+      \end{block}
+  \end{columns}
+\end{frame}
+
+\begin{frame}
+	\frametitle{What is Automatic Differentiation (AD)?}
+
+	Automatic Differentiation is:
+	\begin{itemize}
+		\item a method to get exact derivatives efficiently, by storing information as you go forward that you can reuse as you go backwards.
+		\begin{itemize}
+			\item Takes code that computes a function and uses that to compute the derivative of that function.
+		\item The goal isn't to obtain closed-form solutions, but to be able to write a program that efficiently computes the derivatives.
+		\end{itemize}
+	\end{itemize}
+	\pause
+	\begin{block}{Reverse-Mode Automatic Differentiation}
+	Modern dynamic differentiable programming libraries are built around a technique called Reverse Mode Automatic Differentiation. 
+	\\[0.5em]
+	You write the forward pass; when you run the program, a `computation graph' can be built dynamically, and this graph contains the `adjoint variables' which can be used to compute gradients by applying the chain rule.
+	\end{block}
+\end{frame}
+
+\begin{frame}
+	\frametitle{Optimisation}
+
+	\begin{columns}
+	\setbeamercovered{transparent}
+	\column{.45\textwidth}
+	\begin{itemize}
+		\item<1> We need to limit outselves to first-order methods.
+		\item<2> Gradient Descent is conceptually simple.
+		\item<3> Our loss landscape is wild.
+	\end{itemize}
+	\column{.45\textwidth}
+	\begin{overprint}
+	\setbeamercovered{invisible}
+		\begin{block}{}<only@1>
+			Computing the Hessian is not going to be feasible!
+		\end{block}
+		\begin{block}{}<only@2>
+			Compute the gradient at the current point and take a step proportional to the gradient in the steepest direction.
+		\end{block}
+		\begin{block}{}<only@3>
+			Utilise stochasticity to help explore (e.g. SGD).
+			\\[0.5em]
+			Utilise adaptive learning rates computed from the history of past moves ('momentum') to 'ride over bumps' - algorithms such as ADAM.
+			\\[0.5em]
+			Try to pick good starting points (e.g. He/Xavier(Glorot) initialisation).
+			\\[0.5em]
+			Use batch normalisation in the model to keep weights (and their gradients) in check.
+		\end{block}
+	\end{overprint}
+	\end{columns}
+\end{frame}
+
+\begin{frame}
+	\frametitle{Computation}
+\begin{columns}
+
+\column{.12\textwidth}
+
+\centering
+\includegraphics[width=0.8\columnwidth]{2080.jpg}\\
+\includegraphics[width=0.8\columnwidth]{2080.jpg}\\
+\includegraphics[width=0.8\columnwidth]{2080.jpg}\\
+\includegraphics[width=0.8\columnwidth]{2080.jpg}\\
+
+\column{.83\textwidth}
+
+\begin{itemize}
+	\setbeamercovered{transparent}
+	\item<1> Our model is computationally extreme, yet we still would like to experiment with it in a reasonable amount of time.
+	\item<1> GPUs which enabled the Deep Learning Revolution to start in 2012 are still just as relevant today.
+	\item<2> Our model requires 4 RTX2080ti GPUs (each with 11G RAM) to run!
+	\begin{itemize}
+		\item The VGG16 backbone sits on one GPU
+		\item The Sender and Reciever are each on a different GPU
+		\item The loss computation takes place on the forth GPU
+	\end{itemize}
+	\item<2> For efficiency we use mini-batch SGD with ADAM to train
+	\begin{itemize}
+		\item mini-batch size of 128
+		\item allows for 127 distractors and one target
+		\item but we can utilise all 128 possible targets in a single iteration
+	\end{itemize}
+	\item<3> 74504 images in the training set; but this is made essentially infinite through data augmentation.
+	\item<3> During training we can play and learn from 74496 games in about 7mins 30secs. It takes around 4 hours of play for convergence!
+\end{itemize}	
+\end{columns}
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Experiments}
+In our NeuIPS EmeCom workshop paper\footfullcite{Mihai19} we explore \citeauthor{Havrylov2017}'s model under a number of different configurations.
+\\[0.5em]
+In all cases we shrunk the dataset to 32x32 images from the CIFAR-10 dataset, reduced the allowed vocabulary size to 100 tokens, and setting the maximum sentence length to 5.
+\begin{itemize}
+	\item This makes the model much more manageable - you can \emph{just} fit the whole thing on open GPU with 127 distractors + 1 target.\\[1em]
+\end{itemize}
+% \\[0.5em]
+\pause
+Key metrics are:  \\
+\centering
+\begin{tabular}{ll}
+\hline
+Comm. success rate & proportion of fully successfully games\\
+Top-5 comm. success rate & proportion of almost successful games\\
+\#target class in top-5 & \#images in the top five with target label\\
+Target class avg. rank & average rank of images with the target label\\ \hline
+\end{tabular}
+\end{frame}
+
+\begin{frame}
+\frametitle{Experiments \& Findings 1: feature extraction}
+We firstly explored the importance of the VGG16 feature extraction network, and explored the effect of \begin{itemize}
+		\item learning it as part of the model;
+		\item keeping it fixed with random weights; and
+		\item keeping it fixed with pretrained weights from ImageNet (essentially `importing' external semantic knowledge into the network).  \\[1em]
+\end{itemize}
+\pause
+\centering
+\begin{tabular}{llllll}
+\hline
+ Feature extractor & Comm. & Top-5 & \#target-class  & Target-class \\
+   & rate & comm. rate & in top-5 & avg. rank \\ \hline
+ Pretrained \& fixed & 0.88 ($\pm$0.31) &0.99 &1.84 &46.58\\
+
+ Random \& frozen &0.95 ($\pm$0.19) &1 &1.66 &52.13\\
+
+Learned end-end &0.89 ($\pm$0.3) &1 &1.53 &54.01\\ \hline
+\end{tabular}
+
+\begin{block}{}
+Visual semantics are much stronger in the pretrained model, but they don't make for the best game-play. A fully learned model doesn't learn any notion of semantics.
+\end{block}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Experiments \& Findings 2: augmentation}
+We then explored the effect of using augmentations to make the game harder.\\[1em]
+\pause
+\centering
+\begin{tabular}{llllll}
+\hline
+ Feature extractor & Comm. & Top-5 & \#target-class  & Target-class \\
+   & rate & comm. rate & in top-5 & avg. rank \\
+\hline
+\multicolumn{5}{l}{\textbf{Sender images augmented with Gaussian noise:}}\\
+  Pretrained \& fixed & 0.92 ($\pm$0.26) & 0.99 & 1.85 & 46.12\\
+
+  Random \& frozen & 0.96 ($\pm$0.19) & 1 & 1.6 & 54.01\\
+
+  Learned end-end & 0.94 ($\pm$0.23) & 1 & 1.5 & 57.11\\
+\hline
+\multicolumn{5}{l}{\textbf{Sender images augmented with random rotations:}}\\
+  Pretrained \& fixed & 0.83 ($\pm$0.37) & 0.99 &2.07 &41.89\\
+
+  Random \& frozen & 0.87 ($\pm$0.33) & 0.99 &1.7 &51.89\\
+
+  Learned end-end & 0.92 ($\pm$0.25) & 1 & 1.6 &55.96\\
+\hline
+\end{tabular}
+
+\begin{block}{}
+Adding noise makes the communication rate increase; adding rotations makes the semantics increase (but decreases communication success rate).
+\end{block}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Experiments \& Findings 3: multiple tasks}
+Finally we extended the game to include a secondary task (guessing the rotation of the sender's input) in order to assess whether having agents perform more diverse tasks might lead to stronger visual semantics emerging.
+\begin{figure}
+    \centering
+    \begin{tabular}{c@{\hskip 1in}c}
+    \resizebox{0.3\textwidth}{!}{\input{model-rot.tikz}\unskip} &
+    \resizebox{0.3\textwidth}{!}{\input{model-rot-sender.tikz}\unskip}
+    \end{tabular}
+\end{figure}
+
+
+\pause
+\centering
+\begin{tabular}{llllll}
+    \hline
+     Model & Comm. & Top-5 & \#target-class  & Target-class & Rot.\\
+       & rate & comm. rate & in top-5 & avg. rank & acc.\\
+    \hline
+      Receiver-Predicts (l) & 0.64 ($\pm$0.48) & 0.95 & 1.84 & 45.6 & 0.82\\
+      Sender-Predicts (r) & 0.69 ($\pm$0.46) & 0.98 & 2.05 & 43.41 & 0.84\\
+    \hline
+  \end{tabular}
+
+\begin{block}{}
+Very good visual semantic capture (with only self-supervision); okay, but high variance game play.
+\end{block}
+
+\end{frame}
+
+
+\begin{frame}
+\frametitle{Open questions}
+
+\begin{itemize}
+	\item Those last models are \emph{really} difficult to optimise. 
+	\begin{itemize}
+		\item The losses of the different tasks pull in different directions. 
+		\item For the second (sender predicts) model we optimised $0.5\cdot\mathcal{L}_{rotation} + \mathcal{L}_{game}$, where $\mathcal{L}_{game}$
+		\item For the first (receiver predicts) model we switched between $5.0\cdot\mathcal{L}_{rotation}$ and $5.0\cdot\mathcal{L}_{rotation} + \mathcal{L}_{game}$ on alternate batch iterations.
+	\end{itemize}
+	\item Can we fix this?
+	\begin{itemize}
+		\item We tried an additive loss with learned weights\footfullcite{kendall2017multi} without success. 
+		\item Multi-objective optimisation (e.g. using the Frank-Wolfe algorithm to find a direction to move which satisfies both loss terms\footfullcite{SenerNips2018})? 
+		\item something else?
+	\end{itemize}
+\end{itemize}
+
+\end{frame}
+
+\begin{frame}
+\frametitle{Conclusions}
+
+\begin{itemize}
+	\item Modern deep learning/differentiable programming lets us build neat models.
+	\item State-of-the-art first-order stochastic optimisation works surprisingly well, but it can be slow.
+	\item To build models that get us closer to human-like abilities be need to be able to optimise losses for multiple tasks in the same framework whilst ensuring there is enough balance to allow the model to generalise to all the tasks.
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\centering
+Thank you!
+\\[1em]
+Any questions?
+\end{frame}
+
+\end{document}
