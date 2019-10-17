@@ -16,7 +16,7 @@ def createImage(width, height, bytedata):
 def detect(width, height, bytedata):
 	image = createImage(width, height, bytedata)
 	image = preprocess_image(image)
-	image, scale = resize_image(image, min_side=100, max_side=640)
+	image, scale = resize_image(image, min_side=300, max_side=640)
 	boxes, scores, labels = model.predict_on_batch(np.expand_dims(image, axis=0))
 	boxes /= scale
 	return boxes[0], scores[0].tolist(), labels[0].tolist()
